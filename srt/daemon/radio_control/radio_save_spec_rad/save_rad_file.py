@@ -14,6 +14,9 @@ import pathlib
 from datetime import datetime, timezone
 from math import sqrt
 
+import zmq
+import json
+import time
 
 # String Formatting Constants
 header_format = (
@@ -91,6 +94,13 @@ class blk(
         self.vec_length = vec_length
         self.obsn = 0
 
+        # Add by jhl for receiving update of az_el
+        context = zmq.Context()
+        azel_port = 5565
+        self.azel_socket = context.socket(zmq.SUB)
+        self.azel_socket.connect("tcp://localhost:%s" % azel_port)
+        self.azel_socket.subscribe("")
+
     def work(self, input_items, output_items):
         """example: multiply with constant"""
         file = open(pathlib.Path(self.directory, self.filename), "a+")
@@ -124,6 +134,24 @@ class blk(
         freqsep = bw / nfreq
         nsam = nfreq  # Old SRT Software Had a Specific Bundle of Samples Shuffled Out and Processed at a Time
         sigma = tsys / sqrt((nsam * integ / (2.0e6 * bw)) * freqsep * 1e6)
+
+        rec = self.azel_socket.recv()
+        azel_status = json.loads(rec)
+        print(azel_status)
+        status_time = azel_status["time"]
+        print(status_time)
+        print(time.localtime(status_time))
+        #print("   Received time: {:2d}, el = {:2d}".format(mn, sc))
+        # print(mn)
+        # print(sc)
+
+        # Added by jhl for debugging.
+        print("Received using existing approach: az = {:.1f}, el = {:.1f}".format(aznow, elnow))
+        # 
+        # Added by jhl for debugging.
+        print("   Received using global vars: az = {:.1f}, el = {:.1f}".format(aznow, elnow))
+        # 
+        # print("   Received using NS vars: az = {:.1f}, el = {:.1f}".format(self.ns.az, self.ns.el))
         for input_array in input_items[0]:
             p = np.sum(input_array)
             a = len(input_array)

@@ -23,6 +23,7 @@ from .messaging.status_fetcher import StatusThread
 from .messaging.command_dispatcher import CommandThread
 from .messaging.spectrum_fetcher import SpectrumThread
 
+import zmq
 
 def generate_app(config_dir, config_dict):
     """Generates App and Server Objects for Hosting Dashboard
@@ -65,12 +66,18 @@ def generate_app(config_dir, config_dict):
     cal_spectrum_thread = SpectrumThread(port=5563)
     cal_spectrum_thread.start()
 
+    # Added by jhl for updating time, pwr, and az_el to bypass "save_rad_files.py"
+    context = zmq.Context()
+    time_pwr_azel_port = 5566
+    time_pwr_azel_socket = context.socket(zmq.PUB)
+    time_pwr_azel_socket.bind("tcp://*:%s" % time_pwr_azel_port)
+
     # Dictionary of Pages and matching URL prefixes
     pages = {
         "Monitor Page": "monitor-page",
         "System Page": "system-page",
     }
-    refresh_time = 3000  # ms
+    refresh_time = 1000   #3000  # ms
     pio.templates.default = "seaborn"  # Style Choice for Graphs
     curfold = Path(__file__).parent.absolute()
     # Generate Sidebar Objects
@@ -238,6 +245,11 @@ def generate_app(config_dir, config_dict):
         str
             Content for the Sidebar, Formatted as Markdown
         """
+
+        # Added by jhl for saving a simplified version of data
+        current_time = time()
+        spectrum = raw_spectrum_thread.get_spectrum()
+
         status = status_thread.get_status()
         if status is None:
             az = el = np.nan
@@ -260,8 +272,33 @@ def generate_app(config_dir, config_dict):
             else:
                 status_string = "SRT In Use!"
 
+        # Added by jhl for saving a simplified version of data
+        if spectrum is None:
+            p = 0
+            a = 1
+            tsys = 1
+            tcal = 1
+            cal_pwr = 1
+        else:
+            p = np.sum(spectrum)
+            a = len(spectrum)
+            tsys = float(status["temp_sys"])
+            tcal = float(status["temp_cal"])
+            cal_pwr = float(status["cal_power"])
+
+        pwr = (tsys + tcal) * p / (a * cal_pwr)
+
+        time_pwr_azel_status = {
+            "time": current_time,
+            "power": pwr,
+            "motor_azel": status["motor_azel"],
+        }
+        time_pwr_azel_socket.send_json(time_pwr_azel_status)
+
         status_string = f"""
          #### {status_string}
+         - Current time: {current_time:.1f} sec
+         - Signal power: {pwr:.1f}
          - Motor Az, El: {az:.1f}, {el:.1f} deg
          - Motor Offsets: {az_offset:.1f}, {el_offset:.1f} deg
          - Center Frequency: {cf / pow(10, 6)} MHz

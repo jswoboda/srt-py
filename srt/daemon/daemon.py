@@ -161,9 +161,7 @@ class SmallRadioTelescopeDaemon:
         """
         self.ephemeris_cmd_location = None
         self.radio_queue.put(("soutrack", object_id))
-        N_pnt_default = 25
-        for scan in range(N_pnt_default):
-            self.log_message("{0} of {1} point scan.".format(scan,N_pnt_default))
+        for scan in range(25):
             new_rotor_destination = self.ephemeris_locations[object_id]
             i = (scan // 5) - 2
             j = (scan % 5) - 2
@@ -528,6 +526,12 @@ class SmallRadioTelescopeDaemon:
         status_port = 5555
         status_socket = context.socket(zmq.PUB)
         status_socket.bind("tcp://*:%s" % status_port)
+
+        # Added by jhl for updating az_el to "save_rad_files.py"
+        azel_port = 5565
+        azel_socket = context.socket(zmq.PUB)
+        azel_socket.bind("tcp://*:%s" % azel_port)
+
         while True:
             status = {
                 "beam_width": self.beamwidth,
@@ -554,6 +558,13 @@ class SmallRadioTelescopeDaemon:
                 "time": time(),
             }
             status_socket.send_json(status)
+
+            azel_status = {
+                "motor_azel": self.rotor_location,
+                "time": time(),
+            }
+            azel_socket.send_json(azel_status)
+
             sleep(0.5)
 
     def update_radio_settings(self):
